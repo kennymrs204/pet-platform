@@ -1,0 +1,81 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: pet-platform
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${PET_DB_URL:jdbc:mysql://127.0.0.1:3306/pet_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true}
+    username: ${PET_DB_USER:root}
+    password: ${PET_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 3000
+      pool-name: PetHikariPool
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    validate-on-migrate: true
+  data:
+    redis:
+      host: ${PET_REDIS_HOST:127.0.0.1}
+      port: ${PET_REDIS_PORT:6379}
+      password: ${PET_REDIS_PASSWORD:}
+      database: ${PET_REDIS_DB:0}
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+
+# Redisson 复用 spring.data.redis 连接配置（redisson-spring-boot-starter 默认行为）。
+# 如需独立 redisson.yaml，可在此指定 spring.redis.redisson.config。
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_id
+
+pet:
+  jwt:
+    # 密钥经环境变量注入，不落库不入 git。至少 32 字节。
+    secret: ${PET_JWT_SECRET:}
+    access-expire-seconds: ${PET_JWT_ACCESS_EXPIRE:7200}       # 访问令牌 2 小时
+    refresh-expire-seconds: ${PET_JWT_REFRESH_EXPIRE:1209600}  # 刷新令牌 14 天
+    issuer: pet-platform
+
+springdoc:
+  swagger-ui:
+    # 接口文档默认开启（本地开发）；容器/生产部署由 docker profile 默认关闭。
+    enabled: ${PET_API_DOCS_ENABLED:true}
+    path: /swagger-ui.html
+  api-docs:
+    enabled: ${PET_API_DOCS_ENABLED:true}
+    path: /v3/api-docs
+
+# springdoc 已提到 2.8.x（Boot 3.5 线），knife4j 4.5.0（2024-01 后不再发版）的
+# Knife4jOpenApiCustomizer 调 SpringDocConfigProperties.getGroupConfigs() 会 NoSuchMethodError。
+# 故关掉 knife4j 的增强层，保留其 doc.html 静态 UI（走 springdoc 原生 /v3/api-docs）。
+knife4j:
+  enable: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: INFO
+    com.petplatform: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level [%X{traceId:-}] %logger{36} - %msg%n"

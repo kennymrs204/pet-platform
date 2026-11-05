@@ -1,0 +1,47 @@
+# 容器化本地栈（docker compose --profile app）使用的 profile。
+# 与 local 的区别只有连接地址：容器内走 compose 网络的服务名（mysql/redis），而非 127.0.0.1。
+# 所有值仍保留 ${ENV:default} 形式，环境变量可覆盖。
+#
+# 生产部署不要复用本文件：另建 profile，密钥全部经环境变量注入。
+
+spring:
+  datasource:
+    url: ${PET_DB_URL:jdbc:mysql://mysql:3306/pet_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true}
+    username: ${PET_DB_USER:root}
+    password: ${PET_DB_PASSWORD:root}
+  data:
+    redis:
+      host: ${PET_REDIS_HOST:redis}
+      port: ${PET_REDIS_PORT:6379}
+      password: ${PET_REDIS_PASSWORD:root}
+
+pet:
+  payment:
+    # 容器栈=开发环境：MOCK 通道；生产 profile 必须显式指定真实通道
+    channel: ${PET_PAYMENT_CHANNEL:mock}
+  # MinIO 媒体存储（容器内走 compose 网络名；桶=每用户一个私有桶，零匿名策略）
+  storage:
+    enabled: ${PET_STORAGE_ENABLED:true}
+    endpoint: ${PET_MINIO_ENDPOINT:http://minio:9000}
+    # presigned host 参与 SigV4，必须是调用方（宿主机浏览器）可达的 host
+    external-endpoint: ${PET_STORAGE_EXTERNAL_ENDPOINT:http://localhost:9000}
+    access-key: ${PET_MINIO_USER:petadmin}
+    secret-key: ${PET_MINIO_PASSWORD:pet123456}
+    max-size-mb: 5
+  dev:
+    # 与 local 一致：容器栈也是本地开发环境，保留默认账号便于验收；
+    # 交付/生产环境初始化完成后设 PET_DEV_DEFAULT_ACCOUNT=disabled 关闭。
+    default-account: ${PET_DEV_DEFAULT_ACCOUNT:enabled}
+    default-account-phone: "13800000000"
+    default-account-password: "Pet@123456"
+
+# 容器部署默认不对外暴露接口文档；需要调试时设 PET_API_DOCS_ENABLED=true。
+springdoc:
+  api-docs:
+    enabled: ${PET_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${PET_API_DOCS_ENABLED:false}
+
+logging:
+  level:
+    com.petplatform: INFO

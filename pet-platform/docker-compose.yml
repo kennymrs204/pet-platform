@@ -1,0 +1,136 @@
+name: pet-platform
+
+# 宠物服务/托管平台容器栈。
+#
+#   docker compose up -d                  起基础设施：mysql + redis + minio
+#   docker compose --profile app up -d    再加后端容器（需先 cp .env.example .env）
+#   docker compose down                   停止（数据卷保留）
+#
+# 基础设施端口默认只绑 127.0.0.1；端口冲突时通过 PET_*_PORT 覆盖，不要停其它进程。
+
+services:
+  mysql:
+    image: mysql:8.0.30
+    container_name: pet-platform-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+08:00
+    environment:
+      MYSQL_ROOT_PASSWORD: ${PET_DB_PASSWORD:-root}
+      MYSQL_DATABASE: pet_platform
+    ports:
+      # 仅绑本机，避免把数据库/缓存裸奔到局域网；需要远程访问时改 PET_DB_BIND 并换强口令
+      - "${PET_DB_BIND:-127.0.0.1}:${PET_DB_PORT:-3307}:3306"
+    volumes:
+      # 数据卷首次启动自动创建
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${PET_DB_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+    networks: [petnet]
+
+  redis:
+    image: redis:7-alpine
+    container_name: pet-platform-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${PET_REDIS_PASSWORD:-root}"]
+    ports:
+      - "${PET_REDIS_BIND:-127.0.0.1}:${PET_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${PET_REDIS_PASSWORD:-root}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [petnet]
+
+  # 对象存储：业务表的 photos 列存的是本服务的 key。
+  # 后端按用户建私有桶并签发 presigned URL，B/C 端照片读写全程走签名地址。
+  minio:
+    image: minio/minio:latest
+    container_name: pet-platform-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${PET_MINIO_USER:-petadmin}
+      MINIO_ROOT_PASSWORD: ${PET_MINIO_PASSWORD:-pet123456}
+    ports:
+      - "${PET_MINIO_BIND:-127.0.0.1}:${PET_MINIO_API_PORT:-9000}:9000"
+      - "${PET_MINIO_CONSOLE_BIND:-127.0.0.1}:${PET_MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks: [petnet]
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: pet-platform-app:local
+    container_name: pet-platform-app
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      # 业务时区统一 Asia/Shanghai：镜像默认 UTC，会让 LocalDateTime.now()/JDBC 写读时间错位
+      TZ: Asia/Shanghai
+      PET_JWT_SECRET: ${PET_JWT_SECRET:?缺少 PET_JWT_SECRET：先 cp .env.example .env 并填一个至少 32 字节的串}
+      # token 有效期透传（默认 2h / 14d）
+      PET_JWT_ACCESS_EXPIRE: ${PET_JWT_ACCESS_EXPIRE:-7200}
+      PET_JWT_REFRESH_EXPIRE: ${PET_JWT_REFRESH_EXPIRE:-1209600}
+      PET_DB_PASSWORD: ${PET_DB_PASSWORD:-root}
+      PET_REDIS_PASSWORD: ${PET_REDIS_PASSWORD:-root}
+      # MinIO：凭据与 minio 服务同源；endpoint 走 compose 网络名
+      PET_MINIO_ENDPOINT: ${PET_MINIO_ENDPOINT:-http://minio:9000}
+      # presigned URL 的 host 参与 SigV4，签发必须用浏览器可达的宿主机地址
+      PET_STORAGE_EXTERNAL_ENDPOINT: ${PET_STORAGE_EXTERNAL_ENDPOINT:-http://localhost:9000}
+      PET_MINIO_USER: ${PET_MINIO_USER:-petadmin}
+      PET_MINIO_PASSWORD: ${PET_MINIO_PASSWORD:-pet123456}
+      PET_STORAGE_ENABLED: ${PET_STORAGE_ENABLED:-true}
+      # 接口文档（/doc.html、/v3/api-docs）：容器部署默认关闭，需要时显式开启
+      PET_API_DOCS_ENABLED: ${PET_API_DOCS_ENABLED:-false}
+      # 开发默认账号：初始化完成、正式交付后置 disabled
+      PET_DEV_DEFAULT_ACCOUNT: ${PET_DEV_DEFAULT_ACCOUNT:-enabled}
+      # 导出对账单同步落盘目录（空=只走浏览器下载）；挂载宿主仓库旁的 order 目录
+      PET_ORDER_EXPORT_DIR: ${PET_ORDER_EXPORT_DIR:-/data/order-export}
+    volumes:
+      - ../order:/data/order-export
+    ports:
+      - "${PET_APP_PORT:-8080}:8080"
+    depends_on:
+      mysql: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    restart: unless-stopped
+    networks: [petnet]
+    # 预留给宿主内网地址；默认 localhost 方案不依赖它
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  petnet:
+    name: pet-platform-net
+
+volumes:
+  mysql-data:
+    # 首次启动自动创建；数据随卷保留，down 不删除
+    name: pet-platform-mysql-data
+  redis-data:
+    name: pet-platform-redis-data
+  minio-data:
+    name: pet-platform-minio-data

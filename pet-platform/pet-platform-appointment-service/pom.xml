@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent><groupId>com.petplatform</groupId><artifactId>pet-platform</artifactId><version>1.0.0-SNAPSHOT</version></parent>
+  <artifactId>pet-platform-appointment-service</artifactId>
+  <name>pet-platform-appointment-service</name>
+  <dependencies>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-appointment-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-user-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-pet-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-store-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-employee-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-catalog-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-schedule-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-order-api</artifactId></dependency>
+    <!-- ADR-016 §6：创建返回拉起参数（第五阶段 §5.2"返回支付参数"所需，矩阵增量已录 ADR-016） -->
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-payment-api</artifactId></dependency>
+    <dependency><groupId>com.petplatform</groupId><artifactId>pet-platform-notification-api</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter</artifactId></dependency>
+    <dependency><groupId>com.baomidou</groupId><artifactId>mybatis-plus-spring-boot3-starter</artifactId></dependency>
+    <!-- ADR-016：requestId 幂等/日创建计数器 + Redisson 创建锁 + 快照序列化 -->
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-data-redis</artifactId></dependency>
+    <dependency><groupId>org.redisson</groupId><artifactId>redisson-spring-boot-starter</artifactId></dependency>
+    <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.springframework</groupId><artifactId>spring-web</artifactId></dependency>
+    <dependency><groupId>org.springframework.security</groupId><artifactId>spring-security-core</artifactId></dependency>
+  </dependencies>
+</project>

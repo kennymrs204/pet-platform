@@ -1,0 +1,164 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { authApi } from '../api/auth'
+import { BizCode, BizError } from '../api/types'
+import type { ToastTone } from './useLogin'
+
+const PHONE_RE = /^1\d{10}$/
+const CODE_RE = /^\d{6}$/
+const PASSWORD_RE = /^(?=.*[A-Za-z])(?=.*\d)\S{8,20}$/
+const COUNTDOWN_SECONDS = 60
+
+export interface RegisterCallbacks {
+  /** 注册成功后回调（引导去登录） */
+  onRegistered: () => void
+  onToast: (message: string, tone?: ToastTone) => void
+}
+
+/**
+ * 验证码注册逻辑（ADR-009）：手机号 + 验证码 + 密码设密。
+ * 错误码分支：11001 验证码错（字段级）、20001 已注册（字段级）、10005 限流（Toast+倒计时）。
+ */
+export function useRegister({ onRegistered, onToast }: RegisterCallbacks) {
+  const [phone, setPhoneState] = useState('')
+  const [code, setCodeState] = useState('')
+  const [password, setPasswordState] = useState('')
+  const [phoneError, setPhoneError] = useState('')
+  const [codeError, setCodeError] = useState('')
+  const [passwordError, setPasswordError] = useState('')
+  const [sending, setSending] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const timerRef = useRef<number | null>(null)
+
+  const phoneValid = PHONE_RE.test(phone)
+  const codeValid = CODE_RE.test(code)
+  const passwordValid = PASSWORD_RE.test(password)
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) window.clearInterval(timerRef.current)
+    }
+  }, [])
+
+  const startCountdown = useCallback(() => {
+    setCountdown(COUNTDOWN_SECONDS)
+    if (timerRef.current) window.clearInterval(timerRef.current)
+    timerRef.current = window.setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          if (timerRef.current) window.clearInterval(timerRef.current)
+          return 0
+        }
+        return c - 1
+      })
+    }, 1000)
+  }, [])
+
+  const setPhone = useCallback((v: string) => {
+    setPhoneState(v.replace(/\D/g, '').slice(0, 11))
+    setPhoneError('')
+  }, [])
+
+  const setCode = useCallback((v: string) => {
+    setCodeState(v.replace(/\D/g, '').slice(0, 6))
+    setCodeError('')
+  }, [])
+
+  const setPassword = useCallback((v: string) => {
+    setPasswordState(v)
+    setPasswordError('')
+  }, [])
+
+  const sendCode = useCallback(async () => {
+    if (sending || countdown > 0) return
+    if (!phoneValid) {
+      setPhoneError('请输入正确的 11 位手机号')
+      return
+    }
+    setPhoneError('')
+    setSending(true)
+    try {
+      await authApi.sendSmsCode(phone, 'REGISTER')
+      startCountdown()
+      onToast('验证码已发送，请注意查收', 'success')
+    } catch (e) {
+      if (e instanceof BizError) {
+        if (e.code === BizCode.RATE_LIMITED) {
+          onToast(e.message || '发送过于频繁，请稍后再试', 'error')
+          startCountdown()
+        } else if (e.code === BizCode.PARAM_INVALID) {
+          setPhoneError(e.message || '手机号格式不正确')
+        } else {
+          onToast(e.message || '发送失败，请稍后再试', 'error')
+        }
+      } else {
+        onToast('网络异常，请稍后再试', 'error')
+      }
+    } finally {
+      setSending(false)
+    }
+  }, [phone, phoneValid, sending, countdown, startCountdown, onToast])
+
+  const submit = useCallback(async () => {
+    if (submitting) return // 防重复提交
+    if (!phoneValid) {
+      setPhoneError('请输入正确的 11 位手机号')
+      return
+    }
+    setPhoneError('')
+    if (!codeValid) {
+      setCodeError('请输入 6 位验证码')
+      return
+    }
+    if (!passwordValid) {
+      setPasswordError('密码须为 8-20 位且包含字母和数字')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await authApi.register(phone, code, password)
+      onToast('注册成功，请使用手机号登录', 'success')
+      onRegistered()
+    } catch (e) {
+      if (e instanceof BizError) {
+        switch (e.code) {
+          case BizCode.SMS_CODE_INVALID:
+            setCodeError(e.message || '验证码错误或已失效')
+            break
+          case BizCode.PHONE_REGISTERED:
+            setPhoneError(e.message || '手机号已注册，请直接登录')
+            break
+          case BizCode.RATE_LIMITED:
+            onToast(e.message || '操作过于频繁，请稍后再试', 'error')
+            break
+          default:
+            onToast(e.message || '注册失败，请稍后再试', 'error')
+        }
+      } else {
+        onToast('网络异常，请稍后再试', 'error')
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }, [phone, code, password, phoneValid, codeValid, passwordValid, submitting, onRegistered, onToast])
+
+  return {
+    phone,
+    code,
+    password,
+    phoneError,
+    codeError,
+    passwordError,
+    sending,
+    submitting,
+    countdown,
+    canSubmit: phoneValid && codeValid && passwordValid && !submitting,
+    setPhone,
+    setCode,
+    setPassword,
+    sendCode,
+    submit,
+  }
+}
+
+export type RegisterViewModel = ReturnType<typeof useRegister>
